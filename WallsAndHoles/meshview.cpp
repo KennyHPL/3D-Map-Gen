@@ -1,7 +1,8 @@
 #include <QTimer>
+#include <QMutexLocker>
+
 
 #include "meshview.h"
-#include "ui_meshview.h"
 #include "objtools.h"
 
 #include "meshviewcameralikeblender.h"
@@ -9,248 +10,176 @@
 
 MeshView::MeshView(QWidget *parent) :
     QOpenGLWidget(parent),
-    mShouldReloadScene(false),
-    ui(new Ui::MeshView)
+    mNextRenderer(nullptr),
+    mCamera(nullptr),
+    mTools(new ToolManager(this)),
+    mContext(nullptr)
 {
-    ui->setupUi(this);
-
-    mCamera = QSharedPointer<MeshViewCameraLikeBlender>::create();
-
-    mTools = ToolManagerP::create();
-    mTools->registerTool(mCamera, "camera");
-
-
-    // Start outputting frame updates.
-    QTimer *timer = new QTimer(this);
-    connect(timer, SIGNAL(timeout()), this, SLOT(update()));
-    timer->start(16);
-}
-
-MeshView::~MeshView() {
-    delete ui;
+    connect(mTools, &ToolManager::toolWasActivated,
+            this, &MeshView::cameraActivated);
 }
 
 
-void MeshView::setScene(QSharedPointer<Scene> scene) {
-    mNextScene = scene;
-
-    connect(mNextScene.data(), &Scene::objectAdded, this, &MeshView::invalidateBuffers);
-
-    // The reason loadVAO() is not called here is because the appropriate
-    // OpenGL context may not be bound.
-    invalidateBuffers();
+MeshView::~MeshView()
+{
+    if (mContext != nullptr)
+        // Disconnect the context so that it does not send an aboutToBeDestroyed()
+        // signal after this MeshView has been destructed..
+        mContext->disconnect(this);
 }
 
 
-void MeshView::invalidateBuffers() {
-    mShouldReloadScene = true;
+void MeshView::setRenderer(QSharedPointer<AbstractRenderer> renderer) {
+    QMutexLocker rendererMutex(&mRendererMutex);
+
+
+    // Disconnect the previous renderer's signals.
+    if (!mRenderer.isNull())
+        mRenderer->disconnect(this);
+
+    // Don't actually change mRenderer here -- its destructor must be called
+    // on the OpenGL thread.
+    mNextRenderer = renderer;
+
+    makeCurrent();
+    mNextRenderer->create();
+    doneCurrent();
+
+    connect(renderer.data(), &AbstractRenderer::repaintNeeded, this, &MeshView::scheduleRepaint);
+    connect(renderer.data(), &AbstractRenderer::makeContextCurrent, this, &MeshView::makeContextCurrent);
+    connect(renderer.data(), &AbstractRenderer::doneContextCurrent, this, &MeshView::doneContextCurrent);
 }
 
-
-void MeshView::mousePressEvent(QMouseEvent *event) {
+void MeshView::mousePressEvent(QMouseEvent *event)
+{
     mTools->mousePressEvent(event);
 }
 
-void MeshView::mouseMoveEvent(QMouseEvent *event) {
+void MeshView::mouseMoveEvent(QMouseEvent *event)
+{
     mTools->mouseMoveEvent(event);
 }
 
-void MeshView::mouseReleaseEvent(QMouseEvent *event) {
+void MeshView::mouseReleaseEvent(QMouseEvent *event)
+{
     mTools->mouseReleaseEvent(event);
 }
 
-void MeshView::wheelEvent(QWheelEvent *event) {
+void MeshView::wheelEvent(QWheelEvent *event)
+{
     mTools->wheelEvent(event);
 }
 
 
-void MeshView::activateTool(QString name) {
-    mTools->activateTool(name);
+QSharedPointer<AbstractRenderer> MeshView::getCurrentRenderer()
+{
+    if (!mNextRenderer.isNull()) {
+        mRenderer = mNextRenderer;
+        mNextRenderer = nullptr;
+
+        mRenderer->initializeGL();
+    }
+
+    return mRenderer;
 }
 
 
-// Assumes an OpenGL context is bound, mShaderProgram is set up, and mScene != nullptr.
-void MeshView::loadVAO() {
-    QVector<GLfloat> vertices;
-    QVector<GLfloat> normals;
-    QVector<GLfloat> materials;
-    QVector<GLuint> indices;
+void MeshView::scheduleRepaint()
+{
+    update();
+}
 
-    // Aggregate vertex/normal/material/index information into arrays that will be uploaded to OpenGL buffers.
-    for (auto obj : mScene->getAllObjects()) {
-        const QVector<QVector3D>& vdata = obj->getVertexData();
-        const QVector<QVector3D>& ndata = obj->getVertexNormals();
-        const QVector<MeshMaterial>& mdata = obj->getVertexMaterials();
+void MeshView::makeContextCurrent()
+{
+    makeCurrent();
+}
 
-        for (int i = 0; i < vdata.size(); ++i) {
-            vertices.append(vdata[i][0]);
-            vertices.append(vdata[i][1]);
-            vertices.append(vdata[i][2]);
-
-            normals.append(ndata[i][0]);
-            normals.append(ndata[i][1]);
-            normals.append(ndata[i][2]);
-
-            materials.append(mdata[i].getReflAmbient());
-            materials.append(mdata[i].getReflDiffuse());
-            materials.append(mdata[i].getReflSpecular());
-            materials.append(mdata[i].getShininess());
-        }
+void MeshView::doneContextCurrent()
+{
+    doneCurrent();
+}
 
 
-        const QVector<unsigned int>& triangleIndices = obj->getTriangleIndices();
-        GLuint index = vertices.size()/3 - vdata.size();    // `index` is the index of the 0th vertex of this object in the global arrays.
-        for (int i = 0; i < triangleIndices.size(); ++i)
-            indices.append(index+triangleIndices[i]);
+void MeshView::cleanUp()
+{
+    QMutexLocker rendererMutex(&mRendererMutex);
+
+    // Make the context current. At this stage, the MeshView still has the old context,
+    // but it may not be bound here.
+    makeCurrent();
+
+    if (!mRenderer.isNull()) {
+        // Calling useGL() is important to clear the renderer's OpenGL action queue.
+        // Otherwise, these actions could get called on the new context (or on a destroyed context!).
+        mRenderer->cleanUp();
     }
 
 
-    mVertexPositions = QSharedPointer<QOpenGLBuffer>::create(QOpenGLBuffer::VertexBuffer);
-    mVertexPositions->create();
-    mVertexPositions->bind();
-    mVertexPositions->setUsagePattern(QOpenGLBuffer::DynamicDraw); // may be updated in real-time in the future
-    mVertexPositions->allocate(vertices.data(), vertices.size() * sizeof(GLfloat));
-    mVertexPositions->release();
+    // Release the context.
+    doneCurrent();
 
-    mVertexNormals = QSharedPointer<QOpenGLBuffer>::create(QOpenGLBuffer::VertexBuffer);
-    mVertexNormals->create();
-    mVertexNormals->bind();
-    mVertexNormals->setUsagePattern(QOpenGLBuffer::DynamicDraw);
-    mVertexNormals->allocate(normals.data(), normals.size() * sizeof(GLfloat));
-    mVertexNormals->release();
-
-    mVertexMaterials = QSharedPointer<QOpenGLBuffer>::create(QOpenGLBuffer::VertexBuffer);
-    mVertexMaterials->create();
-    mVertexMaterials->bind();
-    mVertexMaterials->setUsagePattern(QOpenGLBuffer::DynamicDraw);
-    mVertexMaterials->allocate(materials.data(), materials.size() * sizeof(GLfloat));
-    mVertexMaterials->release();
-
-    mTriangleIndices = QSharedPointer<QOpenGLBuffer>::create(QOpenGLBuffer::IndexBuffer);
-    mTriangleIndices->create();
-    mTriangleIndices->bind();
-    mTriangleIndices->setUsagePattern(QOpenGLBuffer::DynamicDraw);
-    mTriangleIndices->allocate(indices.data(), indices.size() * sizeof(GLuint));
-    mTriangleIndices->release();
-
-    mVAO = QSharedPointer<QOpenGLVertexArrayObject>::create(nullptr);
-    mVAO->create();
-    mVAO->bind();
-
-    mVertexPositions->bind();
-    mShaderProgram.setAttrPositionBuffer();
-    mVertexPositions->release();
-
-    mVertexNormals->bind();
-    mShaderProgram.setAttrNormalBuffer();
-    mVertexNormals->release();
-
-    mVertexMaterials->bind();
-    mShaderProgram.setAttrReflAmbientBuffer(0 * sizeof(GLfloat), 4 * sizeof(GLfloat));
-    mShaderProgram.setAttrReflDiffuseBuffer(1 * sizeof(GLfloat), 4 * sizeof(GLfloat));
-    mShaderProgram.setAttrReflSpecularBuffer(2 * sizeof(GLfloat), 4 * sizeof(GLfloat));
-    mShaderProgram.setAttrShininessBuffer(3 * sizeof(GLfloat), 4 * sizeof(GLfloat));
-    mVertexMaterials->release();
-
-    mVAO->release();
+    // Forget the context.
+    mContext = nullptr;
 }
 
-// This is called WHENEVER THERE IS A NEW CONTEXT.
-// A new context can be created if the meshview is undocked. This is important!
-void MeshView::initializeGL() {
+void MeshView::cameraActivated(AbstractTool *tool, QString)
+{
+    if (mCamera)
+        disconnect(mCamera);
+
+    mCamera = dynamic_cast<AbstractMeshViewCamera *>(tool);
+
+    Q_ASSERT(mCamera);
+
+    connect(mCamera, &AbstractMeshViewCamera::changed,
+            this, &MeshView::scheduleRepaint);
+
+    update();
+}
+
+
+// This method is called whenever there is a new context. If there was an old context
+// before, it would have been destroyed and its aboutToBeDestroyed() signal would have
+// been emitted.
+// This happens whenever the QOpenGLWidget is reparented (or docked/undocked).
+void MeshView::initializeGL()
+{
     initializeOpenGLFunctions();
+    QMutexLocker rendererMutex(&mRendererMutex);
 
-    // This will free the previously loaded program automatically.
-    mShaderProgram.create();
+    auto renderer = getCurrentRenderer();
+    if (!renderer.isNull())
+        renderer->initializeGL();
 
-    // If mScene exists, the buffers should be reloaded now.
-    // If mShouldReloadScene is true, keep it true.
-    mShouldReloadScene |= mScene != nullptr;
 
-    // Initialize GL for all objects in the scene.
-    if (mScene != nullptr)
-        mScene->initializeGL();
+    // Connect the context's aboutToBeDestroyed() signal to this view's cleanUp() signal
+    // so that data is cleaned up before the context is destroyed.
+    // Also remember what the context is so that it can be disconnected.
+    mContext = context();
+    connect(mContext, &QOpenGLContext::aboutToBeDestroyed, this, &MeshView::cleanUp);
 }
 
-void MeshView::paintGL() {
+void MeshView::paintGL()
+{
+    QMutexLocker rendererMutex(&mRendererMutex);
 
-    if (mShouldReloadScene) {
-        mShouldReloadScene = false;
-        mScene = mNextScene;
+    auto renderer = getCurrentRenderer();
 
-        mScene->initializeGL();
-        if (!mScene.isNull())
-            loadVAO();
-    }
-
-
-    glEnable(GL_DEPTH_TEST);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    if (!mScene.isNull()) {
-        /******* Draw meshes. *******/
-        // Set program.
-        mShaderProgram.bind();
-
-        // Set the matrix.
+    if (!renderer.isNull()) {
         QMatrix4x4 transform = mCamera->getTransformationMatrix();
         QMatrix4x4 mvp = mProjectionMatrix * transform;
-        mShaderProgram.setUniformMVP(mvp);
-
-        // Set the lighting uniforms.
-        QVector3D camPos = mCamera->getPosition();
-
-        mShaderProgram.setUniformLightPosition(camPos);
-        mShaderProgram.setUniformCameraPosition(camPos);
-        mShaderProgram.setUniformAmbientColor(QVector3D(0.1, 0.1, 0.2));
-        mShaderProgram.setUniformSourceDiffuseColor(QVector3D(0.3, 0.3, 0.2));
-        mShaderProgram.setUniformSourceSpecularColor(QVector3D(0.3, 0.3, 0.2));
-
-
-        // Set arrays.
-        mVAO->bind();
-        mTriangleIndices->bind();
-
-        // Draw.
-        mShaderProgram.enableArrays();
-        glDrawElements(GL_TRIANGLES, mTriangleIndices->size() / sizeof(unsigned int), GL_UNSIGNED_INT, 0); // mTriangleIndices->size() is in bytes!
-        mShaderProgram.disableArrays();
-
-        // Unset arrays.
-        mTriangleIndices->release();
-        mVAO->release();
-
-        // Unset program.
-        mShaderProgram.release();
-
-        /******* Draw widgets. *******/
-        for (QSharedPointer<AbstractDrawableGLObject> drawable : mScene->getAllDrawables())
-            drawable->draw(mProjectionMatrix, transform);
+        renderer->paint(mvp, mCamera->getPosition());
     }
-
-    // Clean up for anything else using the same context.
-    glDisable(GL_DEPTH_TEST);
 }
 
-void MeshView::resizeGL(int w, int h) {
+void MeshView::resizeGL(int w, int h)
+{
     glViewport(0, 0, w, h);
 
     mProjectionMatrix.setToIdentity();
     mProjectionMatrix.perspective(90, ((float) w) / h, 0.1, 100);
-}
 
-void MeshView::load(QString path){
-    QSharedPointer<Scene> scene = QSharedPointer<Scene>::create();
-    scene->addObject(loadOBJ(path));
-    setScene(scene);
-}
-
-void MeshView::save(QString path){
-    QVector<QSharedPointer<RenderableObject>> object = mScene->getAllObjects();
-    if(object.size()<1){
-        qDebug() << "Fail to save mesh: scene is empty";
-    }
-    saveOBJ(path, object[0]);
+    update();
 }
 
 

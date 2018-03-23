@@ -4,17 +4,23 @@
 #include "tilemap.h"
 #include "tilemaptoolmanager.h"
 #include "tiletemplateset.h"
-#include "mapview.h"
+#include "mapviewcontainer.h"
 #include "xmltool.h"
 #include "map2mesh.h"
 #include "meshviewcontainer.h"
 #include "tiletemplatesetsview.h"
-#include "tilepropertyview.h"
 #include "tiletemplatesetsmanager.h"
+#include "propertybrowser.h"
+#include "tilematerialview.h"
+#include "qmainwindow.h"
 
 #include <QObject>
 #include <QList>
 #include <QToolBar>
+#include <QSettings>
+#include <QMainWindow>
+#include <QUndoGroup>
+#include <QUndoStack>
 
 /**
  * @brief The Editor class
@@ -32,16 +38,17 @@ public:
     ~Editor();
 
 public slots:
+    //File:
     void newMap();
     void saveMap();
+    void saveMapAs();
     void loadMap();
     void closeMap();
     void exportMapMesh();
 
-    /**
-     * @brief Gives a new scene to the mesh view by creating it from the data in mMap2Mesh.
-     */
-    void makeNewScene();
+    //Map:
+    void viewMapProperties();
+
 
 private:
     //sets mTileMap to tileMap, and updates everything accordingly
@@ -49,6 +56,19 @@ private:
     void setUpMenuBar();
 
     QMainWindow *mMainWindow;
+
+    // Undo system.
+
+    /**
+     * @brief The undo group. The undo and redo actions come from here.
+     */
+    QUndoGroup *mUndoGroup;
+
+    /**
+     * @brief The TileMap undo stack. This keeps track of actions done on the tile map.
+     * When the tile map changes, this stack is cleared.
+     */
+    QUndoStack *mTileMapUndoStack;
 
     // Map-to-Mesh Converter
     Map2Mesh *mMap2Mesh;
@@ -59,14 +79,29 @@ private:
     QRegion mTileMapSelectedRegion;
 
     //views
-    MapView *mMapView;
+    MapViewContainer *mMapViewContainer;
     MeshViewContainer *mMeshViewContainer;
     TileTemplateSetsView *mTileTemplateSetsView;
-    TilePropertyView *mTilePropertyView;
+    PropertyBrowser *mPropertyBrowser;
+    TileMaterialView *mMaterialView;
 
     //Tools
     TileMapToolManager *mTileMapToolManager;
     QToolBar *mToolBar;
+
+    //QActions which should be disabled when there is no map.
+    QVector<QAction*> mMapDependantActions;
+    void setMapDependantActionsEnabled(bool enabled)
+    {
+        for (QAction *a : mMapDependantActions)
+            a->setEnabled(enabled);
+    }
+
+    //Saving and loading settings
+    QString mSavePath = "/home/";
+    QString mExportPath = "/home/";
+    void loadSettings();
+    void saveSettings();
 };
 
 #endif // EDITOR_H

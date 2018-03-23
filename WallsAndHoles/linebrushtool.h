@@ -4,9 +4,10 @@
 
 #include "abstractshapebrushtool.h"
 
-class LineBrushTool : public AbstractShapeBrushTool {
+class LineBrushTool : public AbstractShapeBrushTool
+{
 public:
-    LineBrushTool(MapView *mapView, TileMap *tileMap);
+    LineBrushTool(TileMapPreviewGraphicsItem *previewItem, QUndoStack *undoStack);
 
     /**
      * @brief Makes a 1-pixel line by intersecting a line with a grid.
@@ -14,7 +15,7 @@ public:
      * Note: this strategy produces "thick" looking lines usually. There is
      * another way that could be implemented that produces "thin" lines.
      */
-    QVector<QPoint>getShape(int dx, int dy) const override;
+   QRegion getShape(QPoint start, QPoint end) const override;
 };
 
 #endif // LINEBRUSHTOOL_H

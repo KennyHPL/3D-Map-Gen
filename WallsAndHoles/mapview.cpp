@@ -1,54 +1,59 @@
 #include "mapview.h"
 #include "mapcell.h"
 
+#include <QtMath>
 #include <QGraphicsView>
 #include <QDebug>
 #include <QKeyEvent>
 #include <QScrollBar>
 #include <QSignalMapper>
 
-MapView::MapView(const QRegion &selectedRegion, QWidget *parent)
-    : QGraphicsView(parent),
-      mScale(0.5),
-      mMapCells(0, 0),
-      mSelectedRegion(selectedRegion),
-      mToolBar(new QToolBar(this))
+MapView::MapView(QWidget *parent)
+    : QGraphicsView(parent)
+    , mScale(15)
+    , mTileMap(nullptr)
+    , mMapCells(0, 0)
+    , mViewMode(1)
+    , mMouseHoverRect(new QGraphicsRectItem(0, 0, 1, 1))
+    , mPreviewItem(new TileMapPreviewGraphicsItem())
 {
-    setupViewToolBar();
+    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+
+    mMouseHoverRect->setPen(Qt::NoPen);
+    mMouseHoverRect->setBrush(QColor(100, 100, 100, 50));
+    mMouseHoverRect->setZValue(200);
+    mMouseHoverRect->hide();
+
     setMouseTracking(true);
     QGraphicsScene *scene = new QGraphicsScene;
     scene->setBackgroundBrush(Qt::gray);
+    mPreviewItem->setZValue(100);
+    scene->addItem(mPreviewItem);
+    scene->addItem(mMouseHoverRect);
     setScene(scene);
+
     QMatrix mat;
     mat.scale(mScale,mScale);
     setMatrix(mat);
 }
 
+MapView::~MapView()
+{
+    delete mPreviewItem;
+}
+
 void MapView::wheelEvent(QWheelEvent *event)
 {
-    // TODO: make this tied to
-    //the MapHeight and MapWidth numbers
-
-    float d = event->delta();
-
-    //on alt pan
-    if (event->modifiers() & Qt::AltModifier) horizontalScrollBar()->setValue(horizontalScrollBar()->value() + d);
-    //on ctrl zoom
-    else if (event->modifiers() & Qt::ControlModifier) mScale += (d/1000);
-    //otherwise normal scroll
+    float d = event->angleDelta().y();
+    if (event->modifiers() & Qt::ControlModifier) mScale += d / 1200;
     else QGraphicsView::wheelEvent(event);//else normal behavior
 
-    if (mScale < 0.2) {
-       //afformentioned basis changing code goes here
-       mScale = 0.2;
-    } else if (mScale > 5) {
-       //afforemention basis changing code goes here
-       mScale = 5;
-    }
+    QTransform t;
+    float s = qPow(M_E, mScale);
+    t.scale(s, s);
+    setTransform(t);
 
-    QMatrix mat;
-    mat.scale(mScale,mScale);
-    setMatrix(mat);
+    emit mapViewChanged(tilesInFrame());
 }
 
 void MapView::clear()
@@ -62,55 +67,73 @@ void MapView::clear()
     mMapCells.resize(0, 0);
 }
 
-void MapView::createMap(TileMap *tileMap)
+void MapView::setMap(TileMap *tileMap)
 {
     clear();
 
-    if (!tileMap) return;
+    if (mTileMap)
+        disconnect(mTileMap);
 
-    QSize mapSize = tileMap->mapSize();
-    mMapCells.resize(mapSize.width(), mapSize.height());
+    mTileMap = tileMap;
 
-    for(int y = 0; y < tileMap->mapSize().height(); ++y) {
-        for(int x = 0; x < tileMap->mapSize().width(); ++x) {
-            mMapCells(x, y) = new MapCell(scene(), x, y, tileMap->cTileAt(x, y));
-            if (mSelectedRegion.contains(QPoint(x, y)))
-                mMapCells(x, y)->setHighlightBrush(QColor(200, 200, 255, 80)); //TODO: This should be defined somewhere meaningful
-        }
+    reMakeMap();
+
+    if (mTileMap) {
+        connect(mTileMap, &TileMap::resized,
+                this, &MapView::mapSizeChanged);
+    } else {
+        mMouseHoverRect->hide();
     }
+}
+
+void MapView::setViewMode(int viewMode)
+{
+    mViewMode = viewMode;
+    for (MapCell *mc : mMapCells)
+        mc->setGraphicsMode(mViewMode);
+}
+
+QRectF MapView::tilesInFrame() const
+{
+    QPointF topLeft = mapToScene(0, 0);
+    QPointF bottomRight = mapToScene(geometry().width(), geometry().height());
+
+    return QRectF(topLeft, bottomRight);
+}
+
+void MapView::mapSizeChanged()
+{
+    reMakeMap();
 }
 
 void MapView::mouseMoveEvent(QMouseEvent *event)
 {
-    QPointF curMousePoint = mapToScene(event->pos()) / 30;
+    QPointF curMousePoint = mapToScene(event->pos());
     QPoint curMouseCell(curMousePoint.x(), curMousePoint.y());
 
-    if (curMousePoint.x() < 0) curMouseCell.setX(-1);
-    if (curMousePoint.y() < 0) curMouseCell.setY(-1);
+    if (curMousePoint.x() < 0) curMouseCell.setX(curMousePoint.x() - 1);
+    if (curMousePoint.y() < 0) curMouseCell.setY(curMousePoint.y() - 1);
 
     if (curMouseCell != mPreMousePoint) {
-        if (mPreMousePoint.x() >= 0 && mPreMousePoint.x() < mMapCells.size().width()
-                && mPreMousePoint.y() >= 0 && mPreMousePoint.y() < mMapCells.size().height()) {
-            if (mSelectedRegion.contains(mPreMousePoint))
-                mMapCells(mPreMousePoint.x(), mPreMousePoint.y())->setHighlightBrush(QColor(200, 200, 255, 80)); //TODO: This should be defined somewhere meaningful
-            else
-                mMapCells(mPreMousePoint.x(), mPreMousePoint.y())->setHighlightBrush(Qt::NoBrush);
+        if (event->buttons() & Qt::LeftButton) {
+            //entered a new cell while holding leftclick
+            emit cellActivated(curMouseCell.x(), curMouseCell.y(), event);
         }
 
         if (curMouseCell.x() >= 0 && curMouseCell.x() < mMapCells.size().width()
                 && curMouseCell.y() >= 0 && curMouseCell.y() < mMapCells.size().height()) {
-            //Just manually setting highlight color here, but TODO: make this a configurable variable somewhere else
-            mMapCells(curMouseCell.x(), curMouseCell.y())->setHighlightBrush(QColor(0, 0, 0, 20));
+            mMouseHoverRect->setPos(curMouseCell.x(), curMouseCell.y());
+            mMouseHoverRect->show();
 
             // Emit a hovered signal for this cell.
-            emit cellHovered(curMouseCell.x(), curMouseCell.y());
+            emit cellHovered(curMouseCell.x(), curMouseCell.y(), event);
+        } else if (mPreMousePoint.x() >= 0 && mPreMousePoint.x() < mMapCells.size().width()
+                   && mPreMousePoint.y() >= 0 && mPreMousePoint.y() < mMapCells.size().height()) {
+            //if the current cell is outside the map, and the previous cell was inside the map
 
-            if (event->buttons() & Qt::LeftButton) {
-                //entered a new cell while holding leftclick
-                emit cellActivated(curMouseCell.x(), curMouseCell.y());
-            }
-        } else {
-            emit mouseExitedMap();
+            mMouseHoverRect->hide();
+
+            emit mouseExitedMap(event);
         }
 
         mPreMousePoint = curMouseCell;
@@ -125,6 +148,8 @@ void MapView::mouseMoveEvent(QMouseEvent *event)
         hsb->setValue(hsb->value() + dx);
         QScrollBar* const vsb = verticalScrollBar();
         vsb->setValue(vsb->value() + dy);
+
+        emit mapViewChanged(tilesInFrame());
     } else {
         QGraphicsView::mouseMoveEvent(event);
         mOldX = event->x();
@@ -136,11 +161,8 @@ void MapView::mouseMoveEvent(QMouseEvent *event)
 void MapView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        if (mPreMousePoint.x() >= 0 && mPreMousePoint.x() < mMapCells.size().width()
-                && mPreMousePoint.y() >= 0 && mPreMousePoint.y() < mMapCells.size().height()) {
-            emit cellClicked(mPreMousePoint.x(), mPreMousePoint.y());
-            emit cellActivated(mPreMousePoint.x(), mPreMousePoint.y());
-        }
+        emit cellClicked(mPreMousePoint.x(), mPreMousePoint.y(), event);
+        emit cellActivated(mPreMousePoint.x(), mPreMousePoint.y(), event);
     } else {
         QGraphicsView::mousePressEvent(event);
     }
@@ -149,74 +171,50 @@ void MapView::mousePressEvent(QMouseEvent *event)
 void MapView::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
-        if (mPreMousePoint.x() >= 0 && mPreMousePoint.x() < mMapCells.size().width()
-                && mPreMousePoint.y() >= 0 && mPreMousePoint.y() < mMapCells.size().height())
-            emit cellReleased(mPreMousePoint.x(), mPreMousePoint.y());
+        emit cellReleased(mPreMousePoint.x(), mPreMousePoint.y(), event);
     } else {
         QGraphicsView::mouseReleaseEvent(event);
     }
 }
 
-void MapView::setupViewToolBar()
+void MapView::resizeEvent(QResizeEvent *)
 {
-    mNoView = new QAction("No View", this);
-    mDefaultView = new QAction("Default View", this);
-    mHeightView = new QAction("Height Map", this);
-
-    mNoView->setCheckable(true);
-    mDefaultView->setCheckable(true);
-    mHeightView->setCheckable(true);
-
-    mDefaultView->setChecked(true);
-
-    connect(mNoView, &QAction::toggled, this, &MapView::setNoView);
-    connect(mDefaultView, &QAction::toggled, this, &MapView::setDefaultView);
-    connect(mHeightView,  &QAction::toggled, this, &MapView::setHeightMap);
-
-    mToolBar->addAction(mNoView);
-    mToolBar->addAction(mDefaultView);
-    mToolBar->addAction(mHeightView);
-    mToolBar->setAutoFillBackground(true);
-    mToolBar->show();
+    emit mapViewChanged(tilesInFrame());
 }
 
-void MapView::setNoView(bool state)
+void MapView::reMakeMap()
 {
-    if (state) {
-        if (mDefaultView->isChecked())
-            mDefaultView->setChecked(false);
-        if (mHeightView->isChecked())
-            mHeightView->setChecked(false);
-    } else {
-        if (!mHeightView->isChecked() && !mDefaultView->isChecked())
-            mDefaultView->setChecked(true);
-    }
-}
+    clear();
 
-void MapView::setDefaultView(bool state)
-{
-    if (state) {
-        mNoView->setChecked(false);
-    } else {
-        if (!mHeightView->isChecked())
-            mNoView->setChecked(true);
+    if (!mTileMap) return;
+
+    QSize mapSize = mTileMap->mapSize();
+    mMapCells.resize(mapSize.width(), mapSize.height());
+
+    for(int y = 0; y < mTileMap->mapSize().height(); ++y) {
+        for(int x = 0; x < mTileMap->mapSize().width(); ++x) {
+            mMapCells(x, y) = new MapCell(scene(), x, y, mTileMap->cTileAt(x, y));
+            mMapCells(x, y)->setGraphicsMode(mViewMode);
+        }
     }
 
-    for(int x = 0; x<mMapCells.size().width(); ++x)
-        for(int y = 0; y<mMapCells.size().height(); ++y)
-            mMapCells(x,y)->setGraphics(DefaultView, state);
-}
+    mPreviewItem->setClipRect(QRect(QPoint(0, 0), mTileMap->mapSize()));
 
-void MapView::setHeightMap(bool state)
-{
-    if (state) {
-        mNoView->setChecked(false);
-    } else {
-        if (!mDefaultView->isChecked())
-            mNoView->setChecked(true);
-    }
+    setSceneRect(-MAP_BUFFER,
+                 -MAP_BUFFER,
+                 mTileMap->width() + MAP_BUFFER * 2,
+                 mTileMap->height() + MAP_BUFFER * 2);
 
-    for(int x = 0; x<mMapCells.size().width(); ++x)
-        for(int y = 0; y<mMapCells.size().height(); ++y)
-            mMapCells(x,y)->setGraphics(HeightMapView, state);
+    float vertScale = geometry().height() / sceneRect().height();
+    float horScale = geometry().width() / sceneRect().width();
+
+    float s = std::min(vertScale, horScale);
+
+    QTransform t;
+    t.scale(s, s);
+    setTransform(t);
+
+    mScale = qLn(s);
+
+    emit mapViewChanged(tilesInFrame());
 }

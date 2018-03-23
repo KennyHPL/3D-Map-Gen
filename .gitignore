@@ -22,14 +22,12 @@ object_script.*.Debug
 *.qbs.user
 *.qbs.user.*
 *.moc
-*.xml
 moc_*.cpp
 moc_*.h
 qrc_*.cpp
 ui_*.h
 *.qmlc
 *.jsc
-Makefile*
 *build-*
 
 # Qt unit tests
@@ -47,3 +45,16 @@ target_wrapper.*
 CMakeLists.txt.user*
 
 WallsAndHoles/WallsAndHoles.pro.user
+release
+
+*.orig
+
+# Depolyment builds
+
+Deployment/win_deploy/*.exe
+Deployment/win_deploy/packages/com.wah.product/data/*
+
+Docs/UserManual/src/_build/
+Docs/UserManual/src/downloads/
+
+Doxyfile

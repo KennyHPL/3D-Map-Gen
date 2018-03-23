@@ -3,24 +3,23 @@
 
 #include <QVector>
 #include <QPoint>
+#include <QUndoStack>
 
 #include "array2d.h"
 #include "abstracttilemaptool.h"
 #include "tilemap.h"
 #include "tiletemplate.h"
 #include "mapview.h"
-#include "mapoverlaycell.h"
+#include "tiletemplatechangecommand.h"
 
 class AbstractShapeBrushTool : public AbstractTileMapTool
 {
 public:
-    AbstractShapeBrushTool(MapView *mapView, TileMap *tileMap);
+    AbstractShapeBrushTool(TileMapPreviewGraphicsItem *previewItem, QUndoStack *undoStack);
 
-    void cellClicked(int x, int y) override;
-    void cellActivated(int x, int y) override;
-    void cellReleased(int x, int y) override;
-
-    void mouseExitedMap() override;
+    void cellClicked(int x, int y, QMouseEvent *) override;
+    void cellActivated(int x, int y, QMouseEvent *) override;
+    void cellReleased(int x, int y, QMouseEvent *) override;
 
     void deactivate() override;
 
@@ -36,7 +35,7 @@ public:
      * @param dx  The X offset from the start of drawing.
      * @param dy  The Y offset from the start of drawing.
      */
-    virtual QVector<QPoint> getShape(int dx, int dy) const = 0;
+    virtual QRegion getShape(QPoint start, QPoint end) const = 0;
 
 private:
     int mStartX;  /// The X position of the first click.
@@ -45,8 +44,8 @@ private:
     /// The MapView on which an overlay will be drawn.
     MapView *mMapView;
 
-    /// The overlay that is drawn over the map view.
-    Array2D<QSharedPointer<MapOverlayCell>> mOverlay;
+    /// The undo stack that should be used. Not owned by this object.
+    QUndoStack *mUndoStack;
 
     /// Draws an overlay previewing the shape that will be drawn.
     void drawOverlay(int endX, int endY);

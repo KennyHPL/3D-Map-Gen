@@ -17,8 +17,9 @@ class TileMap : public QObject
 
 public:
     TileMap(QSize mapSize,
+            bool isIndoors,
+            bool hasCeiling,
             QObject *parent = nullptr);
-
 
     Tile &tileAt(int x, int y);
     const Tile &cTileAt(int x, int y) const;
@@ -42,10 +43,20 @@ public:
 
     QSize mapSize() const { return mMap.size(); }
 
+    bool contains(int x, int y) const;
+
     int width() const { return mMap.size().width(); }
     int height() const { return mMap.size().height(); }
+    bool isIndoor() const { return mIsIndoors; }
+    bool hasCeiling() const { return mHasCeiling; }
 
-    //changes the size of the map. If the size is reduced, tiles will be lost (resizes around top left corner)
+    /**
+     * @brief resizeMap
+     *
+     * Changes the size of the map. If the size is reduced, tiles will be lost (resizes around top left corner)
+     *
+     * @param newSize
+     */
     void resizeMap(QSize newSize);
 
     const QString savePath() const { return mSavePath; }
@@ -77,6 +88,28 @@ public:
      */
     void removingTileTemplateSet(TileTemplateSet *tileTemplateSet);
 
+    /**
+     * @brief removeTileTemplate
+     * Called when a tileTemplate is going to be removed.
+     * Any tiles using template will be cleared.
+     * @param tileTemplate
+     */
+    void removingTileTemplate(TileTemplate *tileTemplate);
+
+    /**
+     * @brief tilePositionsUsingTemplate    Finds the positions of all the tiles using a given TileTemplate.
+     * @param tileTemplate                  The tile template.
+     * @return                              The positions of the tiles that use tileTemplate.
+     */
+    QVector<QPoint> tilePositionsUsingTemplate(TileTemplate *tileTemplate);
+
+    /**
+     * @brief tilePositionsUsingTemplateSet Finds the positions of all the tiles using a given TileTemplateSet.
+     * @param tileTemplateSet               The tile template set.
+     * @return                              The positions of the tiles that use tileTemplateSet.
+     */
+    QVector<QPoint> tilePositionsUsingTemplateSet(TileTemplateSet *tileTemplateSet);
+
     TileTemplateSet *defaultTileTemplateSet() { return mDefaultTileTemplateSet; }
 
 public slots:
@@ -105,6 +138,10 @@ private:
     //2D array of Tile*. If mMap[x][y]->isEmpty() then ground is shown
     Array2D<QSharedPointer<Tile>> mMap;
 
+    //General Properties of the map:
+    bool mIsIndoors;
+    bool mHasCeiling;
+
     //default save path of this tilemap object, can be changed when using "save as" command.
     QString mSavePath;
 
@@ -113,6 +150,7 @@ private:
     //Should be carefully be set to false elsewhere
     bool mTilePinged;
     QVector<QSharedPointer<Tile>> mPingedTiles;
+    QVector<QPoint> mPingedTilePositions;
 
     TileTemplateSet *mDefaultTileTemplateSet;
 

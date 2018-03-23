@@ -18,8 +18,8 @@ public:
     MapCell(QGraphicsScene *scene, int x, int y, const Tile &tile, QObject *parent = nullptr);
     ~MapCell();
 
-    void setHighlightBrush(const QBrush &color) { mHighlight->setBrush(color); }
-    void setGraphics(MapViewMode viewMode, bool enabled);
+    int graphicsMode() const { return mGraphics->viewMode(); }
+    void setGraphicsMode(int viewMode);
 
 public slots:
     void tileChanged();
@@ -30,7 +30,6 @@ private:
     // TODO replace this with a gridGraphicsItem in MapView
     QGraphicsRectItem *mGrid;
     QGraphicsRectItem *mBackground;
-    QGraphicsRectItem *mHighlight;
     MapCellGraphicsItem *mGraphics;
 };
 

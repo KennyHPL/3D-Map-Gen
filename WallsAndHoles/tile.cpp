@@ -41,12 +41,37 @@ QVector2D Tile::position() const
         return mRelativePosition + mTileTemplate->position();
 }
 
-void Tile::setRelativeThickness(float relativeThickness)
+const TileMaterial *Tile::topMaterial() const
 {
+    if (mTileTemplate)
+        return mTileTemplate->topMaterial();
+    else
+        return TileMaterial::getDefaultGroundMaterial();
+}
+
+const TileMaterial *Tile::sideMaterial() const
+{
+    if (mTileTemplate) {
+        if (mTileTemplate->hasSideMaterial())
+            return mTileTemplate->sideMaterial();
+        else
+            return mTileTemplate->topMaterial();
+    } else {
+        return TileMaterial::getDefaultGroundMaterial();
+    }
+}
+
+float Tile::setRelativeThickness(float relativeThickness)
+{
+    if (relativeThickness == mRelativeThickness) {
+        emit tileChanged(mXPos, mYPos);
+        return mRelativeThickness;
+    }
+
     if (mTileTemplate == nullptr) {
         mRelativeThickness = 0;
         emit tileChanged(mXPos, mYPos);
-        return;
+        return 0;
     }
 
     if (relativeThickness + mTileTemplate->thickness() > 1)
@@ -72,6 +97,8 @@ void Tile::setRelativeThickness(float relativeThickness)
     mRelativeThickness = relativeThickness;
 
     emit tileChanged(mXPos, mYPos);
+
+    return mRelativeThickness;
 }
 
 void Tile::setRelativeHeight(float relativeHeight)
@@ -84,17 +111,12 @@ void Tile::setRelativeHeight(float relativeHeight)
     emit tileChanged(mXPos, mYPos);
 }
 
-void Tile::setRelativePosition(QVector2D relavtivePosition)
+QVector2D Tile::setRelativePosition(QVector2D relavtivePosition)
 {
-    Q_ASSERT(relavtivePosition.x() < 0.5
-             && relavtivePosition.x() > -0.5
-             && relavtivePosition.y() < 0.5
-             && relavtivePosition.y() > -0.5);
-
     if (mTileTemplate == nullptr) {
         mRelativePosition = QVector2D();
         emit tileChanged(mXPos, mYPos);
-        return;
+        return QVector2D();
     }
 
     float thickness = mRelativeThickness + mTileTemplate->thickness();
@@ -113,6 +135,8 @@ void Tile::setRelativePosition(QVector2D relavtivePosition)
     mRelativePosition = relavtivePosition;
 
     emit tileChanged(mXPos, mYPos);
+
+    return mRelativePosition;
 }
 
 void Tile::resetTile(TileTemplate *newTileTemplate)
@@ -132,17 +156,19 @@ void Tile::resetTile(TileTemplate *newTileTemplate)
 void Tile::makeTemplateConnections()
 {
     if (mTileTemplate != nullptr) {
-        connect(mTileTemplate, &TileTemplate::exclusivePropertyChanged,
-                this, [this]{
+
+        auto emitTileChanged = [this] {
             emit tileChanged(mXPos, mYPos);
-        });
-        connect(mTileTemplate, &TileTemplate::thicknessChanged,
-                this, &Tile::templateThicknessChanged);
-        connect(mTileTemplate, &TileTemplate::positionChanged,
-                this, &Tile::templatePositionChanged);
-        connect(mTileTemplate, &TileTemplate::pingTiles,
-                this, [this]{
+        };
+
+        auto emitTilePinged = [this] () {
             emit tilePinged(mXPos, mYPos);
-        });
+        };
+
+        connect(mTileTemplate, &TileTemplate::exclusivePropertyChanged, this, emitTileChanged);
+        connect(mTileTemplate, &TileTemplate::thicknessChanged, this, &Tile::templateThicknessChanged);
+        connect(mTileTemplate, &TileTemplate::positionChanged, this, &Tile::templatePositionChanged);
+        connect(mTileTemplate, &TileTemplate::materialChanged, this, emitTileChanged);
+        connect(mTileTemplate, &TileTemplate::pingTiles, this, emitTilePinged);
     }
 }

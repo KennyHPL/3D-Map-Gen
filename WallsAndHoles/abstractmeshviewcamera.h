@@ -1,9 +1,11 @@
 #ifndef MESHVIEWCAMERA_H
 #define MESHVIEWCAMERA_H
 
+#include <QObject>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QWheelEvent>
+
 
 #include "abstracttool.h"
 
@@ -12,6 +14,8 @@
  * Abstract class that will determine how the camera moves based on the mouse.
  */
 class AbstractMeshViewCamera : public AbstractTool {
+    Q_OBJECT
+
 public:
     virtual ~AbstractMeshViewCamera() {}
 
@@ -35,6 +39,12 @@ public:
     virtual void mouseReleaseEvent(QMouseEvent *) override {}
     virtual void mouseMoveEvent(QMouseEvent *) override {}
     virtual void wheelEvent(QWheelEvent *) override {}
+
+signals:
+    /**
+     * @brief This signal should be emitted when the camera is moved.
+     */
+    void changed();
 };
 
 #endif // MESHVIEWCAMERA_H

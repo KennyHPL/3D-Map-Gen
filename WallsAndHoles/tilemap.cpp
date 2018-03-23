@@ -3,10 +3,15 @@
 #include <QDebug>
 
 TileMap::TileMap(QSize mapSize,
+                 bool isIndoors,
+                 bool hasCeiling,
                  QObject *parent)
     : QObject(parent)
     , mMap(mapSize.width(), mapSize.height())
+    , mIsIndoors(isIndoors)
+    , mHasCeiling(hasCeiling)
     , mDefaultTileTemplateSet(new TileTemplateSet("Map Tile Templates", this))
+
 {
     for (int x = 0; x < mMap.size().width(); ++x) {
         for (int y = 0; y < mMap.size().height(); ++y) {
@@ -67,6 +72,14 @@ void TileMap::clear()
     for (int x = 0; x < mMap.size().width(); ++x)
         for (int y = 0; y < mMap.size().height(); ++y)
             clearTile(x, y);
+}
+
+bool TileMap::contains(int x, int y) const
+{
+    return x >= 0
+            && y >= 0
+            && x < mMap.width()
+            && y < mMap.height();
 }
 
 void TileMap::resizeMap(QSize newSize)
@@ -152,6 +165,7 @@ void TileMap::removingTileTemplateSet(TileTemplateSet *tileTemplateSet)
 
     mTilePingReceiveMode = Collect;
     mPingedTiles.clear();
+    mPingedTilePositions.clear();
 
     for (TileTemplate *t : tileTemplateSet->cTileTemplates())
         if (t)
@@ -161,10 +175,74 @@ void TileMap::removingTileTemplateSet(TileTemplateSet *tileTemplateSet)
         t->resetTile(nullptr);
 
     mPingedTiles.clear();
+    mPingedTilePositions.clear();
     mTilePingReceiveMode = None;
 
     mPingingMutex.unlock();
 }
+
+void TileMap::removingTileTemplate(TileTemplate *tileTemplate)
+{
+    if (!tileTemplate) return;
+
+    mPingingMutex.lock();
+
+    mTilePingReceiveMode = Collect;
+    mPingedTiles.clear();
+    mPingedTilePositions.clear();
+
+    tileTemplate->emitTilePing();
+
+    for (QSharedPointer<Tile> t : mPingedTiles)
+        t->resetTile(nullptr);
+
+    mPingedTiles.clear();
+    mPingedTilePositions.clear();
+    mTilePingReceiveMode = None;
+
+    mPingingMutex.unlock();
+}
+
+QVector<QPoint> TileMap::tilePositionsUsingTemplate(TileTemplate *tileTemplate)
+{
+    QMutexLocker locker(&mPingingMutex);
+
+    mTilePingReceiveMode = Collect;
+    mPingedTiles.clear();
+    mPingedTilePositions.clear();
+
+    tileTemplate->emitTilePing();
+
+    QVector<QPoint> positions = mPingedTilePositions;
+
+    mPingedTiles.clear();
+    mPingedTilePositions.clear();
+    mTilePingReceiveMode = None;
+
+    return positions;
+}
+
+QVector<QPoint> TileMap::tilePositionsUsingTemplateSet(TileTemplateSet *tileTemplateSet)
+{
+    QMutexLocker locker(&mPingingMutex);
+
+    mTilePingReceiveMode = Collect;
+    mPingedTiles.clear();
+    mPingedTilePositions.clear();
+
+    for (TileTemplate *t : tileTemplateSet->cTileTemplates())
+        if (t)
+            t->emitTilePing();
+
+    QVector<QPoint> positions = mPingedTilePositions;
+
+    mPingedTiles.clear();
+    mPingedTilePositions.clear();
+    mTilePingReceiveMode = None;
+
+    return positions;
+}
+
 
 void TileMap::tilePinged(int x, int y)
 {
@@ -174,6 +252,7 @@ void TileMap::tilePinged(int x, int y)
         break;
     case Collect:
         mPingedTiles.append(mMap(x, y));
+        mPingedTilePositions.append(QPoint(x, y));
         break;
     default: break;
     }

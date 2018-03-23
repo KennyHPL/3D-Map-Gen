@@ -1,27 +1,17 @@
+#include "filltool.h"
+
+#include "tilemaphelpers.h"
+#include "tiletemplatechangecommand.h"
 
 #include <QQueue>
 #include <QPair>
 
-#include "filltool.h"
 
+FillTool::FillTool(TileMapPreviewGraphicsItem *previewItem, QUndoStack *undoStack)
+    : AbstractTileMapTool(previewItem)
+    , mUndoStack(undoStack) {}
 
-// QPoints are not hashable in Qt by default!
-inline uint qHash (const QPoint & key)
-{
-    return qHash (QPair<int,int>(key.x(), key.y()) );
-}
-
-
-
-FillTool::FillTool(MapView *mapView, TileMap *tileMap)
-    : AbstractTileMapTool(tileMap),
-      mMapView(mapView)
-{
-}
-
-
-
-void FillTool::cellClicked(int x, int y)
+void FillTool::cellClicked(int x, int y, QMouseEvent *)
 {
     // Clear the overlay.
     clearOverlay();
@@ -34,16 +24,18 @@ void FillTool::cellClicked(int x, int y)
     disconnect(getTileMap(), &TileMap::mapChanged, this, &FillTool::invalidateSelection);
 
     // Fill it in.
-    TileTemplate *drawMaterial = getTileTemplate();
-    for (QPoint point : mSelection)
-        getTileMap()->setTile(point.x(), point.y(), drawMaterial);
+    mUndoStack->push(TileTemplateChangeCommand::make(
+                         getTileMap(),
+                         mSelection,
+                         getTileTemplate(),
+                         "'fill'"));
 
     // Stop blocking signals.
     connect(getTileMap(), &TileMap::mapChanged, this, &FillTool::invalidateSelection);
 }
 
 
-void FillTool::cellHovered(int x, int y)
+void FillTool::cellHovered(int x, int y, QMouseEvent *)
 {
     drawOverlay(x, y);
 }
@@ -76,62 +68,13 @@ void FillTool::updateSelection(int x, int y)
         return;
 
     mSelection.clear();
-    QQueue<QPoint> toBeProcessed;
-    QSet<QPoint> inQueueOrProcessed;
 
-    toBeProcessed.enqueue(QPoint(x, y));
+    QRegion fillRegion = TileMapHelper::getFillRegion(getTileMap(), x, y);
 
-    while (!toBeProcessed.isEmpty()) {
-
-        QPoint p = toBeProcessed.dequeue();
-
-
-        // Add the point to the selection.
-        mSelection.insert(p);
-
-        // The Tile corresponding to the current point.
-        const Tile &pTile = getTileMap()->tileAt(p.x(), p.y());
-
-        // Add the point's neighbors to the queue if they match the point and
-        // are not already in the queue.
-        QPoint neighbors[4] = {
-            QPoint(p.x() + 0, p.y() + 1),
-
-            QPoint(p.x() + 1, p.y() + 0),
-            QPoint(p.x() - 1, p.y() + 0),
-
-            QPoint(p.x() + 0, p.y() - 1)
-
-        };
-
-        for (QPoint neighbor : neighbors) {
-
-            // Only consider neighbors that aren't already in the queue and
-            // weren't already processed.
-            if (!inQueueOrProcessed.contains(neighbor)) {
-
-                int nx = neighbor.x();
-                int ny = neighbor.y();
-
-                // Make sure neighbor is in bounds.
-                if (nx >= 0 && nx < getTileMap()->width()
-                        && ny >= 0 && ny < getTileMap()->height()) {
-
-
-                    // Check if the neighbor matches the current point.
-                    bool tileMatches = true;
-                    if (getTileMap()->tileAt(nx, ny).hasTileTemplate() != pTile.hasTileTemplate())
-                        tileMatches = false;
-                    else if (getTileMap()->tileAt(nx, ny).tileTemplate() != pTile.tileTemplate())
-                        tileMatches = false;
-
-
-                    // If it does match, then add it to the processing queue.
-                    if (tileMatches) {
-                        toBeProcessed.enqueue(neighbor);
-                        inQueueOrProcessed.insert(neighbor);
-                    }
-                }
+    for (const QRect &r : fillRegion) {
+        for (int w = r.left(); w <= r.right(); ++w) {
+            for (int h = r.top(); h <= r.bottom(); ++h) {
+                mSelection.insert(QPoint(w, h));
             }
         }
     }
@@ -141,7 +84,7 @@ void FillTool::updateSelection(int x, int y)
 
 void FillTool::clearOverlay()
 {
-    mOverlay = Array2D<QSharedPointer<MapOverlayCell>>();
+    mPreviewItem->setRegion(QRegion());
 }
 
 
@@ -152,23 +95,20 @@ void FillTool::drawOverlay(int endX, int endY)
 
         updateSelection(endX, endY);
 
-        QColor color;
+        QRegion region;
+        for (const QPoint &p : mSelection)
+            region += QRect(p, QSize(1,1));
+
+        mPreviewItem->setRegion(region);
+
         if (TileTemplate *t = getTileTemplate())
-            color = t->color();
+            mPreviewItem->setColor(t->color());
         else
-            color = Qt::black;
-
-        color.setAlpha(100);
-
-        QGraphicsScene *scene = mMapView->scene();
-
-        mOverlay.resize(getTileMap()->width(), getTileMap()->height());
-        for (QPoint p : mSelection)
-            mOverlay(p) = QSharedPointer<MapOverlayCell>::create(scene, p.x(), p.y(), color);
+            mPreviewItem->setColor(Qt::gray);
     }
 }
 
-void FillTool::mouseExitedMap()
+void FillTool::mouseExitedMap(QMouseEvent *)
 {
     mSelection.clear();
     clearOverlay();

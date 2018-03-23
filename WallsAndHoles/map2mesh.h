@@ -3,11 +3,16 @@
 
 
 #include <QObject>
+#include <QSet>
+#include <QMutex>
 
-#include "renderableobject.h"
+#include "simpletexturedscene.h"
+#include "simpletexturedobject.h"
+
 #include "tilemap.h"
 
-#include "m2mpropertyset.h"
+#include "m2mpropertyclass.h"
+#include "m2mtilemesher.h"
 
 #include "array2d.h"
 
@@ -25,11 +30,11 @@ public:
      */
     Map2Mesh(TileMap *tileMap, QObject *parent = nullptr);
 
+
     /**
-     * @brief Returns a list of all the tile meshes.
-     * @return The list of all tile meshes.
+     * @brief Returns the Scene that this Map2Mesh instance works with.
      */
-    QVector<QSharedPointer<RenderableObject>> getMeshes() const;
+    SharedSimpleTexturedScene getScene() const;
 
 public slots:
     /**
@@ -44,38 +49,52 @@ public slots:
      */
     void remakeAll();
 
-signals:
-    /**
-     * @brief Emitted when the output mesh is updated.
-     */
-    void mapMeshUpdated();
 
 protected:
     /**
-     * @brief Figures out mTileProperties for all tiles, and updates meshes when
-     * properties change.
+     * @brief Updates the scene for all tiles that need updates.
      */
-    void inferProperties();
+    void updateScene();
 
+
+    /**
+     * @brief The TileMap that is the input to this Map2Mesh object.
+     */
     TileMap *mTileMap;
 
-    QSharedPointer<RenderableObject> mOutputMesh;
 
     /**
-     * @brief A mesh for every tile.
+     * @brief The Scene which contains the output of the Map2Mesh object.
      */
-    Array2D<QSharedPointer<RenderableObject>> mTileMeshes;
+    SharedSimpleTexturedScene mScene;
+
+
+    /// A grid containing lists of objects. A tile's "mesh" may consist of several
+    /// objects for texturing purposes.
+    using TileObjectGrid = Array2D<QVector<QSharedPointer<SimpleTexturedObject>>>;
+
 
     /**
-     * @brief Inferred properties for every tile.
+     * @brief Mesh data for every tile.
      */
-    Array2D<M2MPropertySet> mTileProperties;
+    TileObjectGrid mTileObjects;
 
 
     /**
-     * @brief Whether an inferProperties() call has been scheduled. Used in tileChanged().
+     * @brief Whether an updateScene() call has been scheduled. Used in tileChanged().
      */
-    bool mInferScheduled;
+    bool mSceneUpdateScheduled;
+
+    /**
+     * @brief Coordinates of tiles that need updating.
+     */
+    QSet<QPoint> mTilesToUpdate;
+
+    /**
+     * @brief Mutex for scene-update related operations.
+     */
+    QMutex mSceneUpdateMutex;
+
 
 public:
     struct Properties {

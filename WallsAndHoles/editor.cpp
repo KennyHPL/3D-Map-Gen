@@ -4,12 +4,18 @@
 #include "meshviewcontainer.h"
 #include "tilemapbrushtool.h"
 #include "tilemapselectiontool.h"
+#include "propertybrowser.h"
+#include "mappropertymanager.h"
+#include "mapviewmatchercamera.h"
 
 #include "filltool.h"
 
 #include "linebrushtool.h"
 #include "rectbrushtool.h"
 #include "ellipsebrushtool.h"
+
+#include "abstractscene.h"
+#include "abstractrenderer.h"
 
 #include <QDockWidget>
 #include <QApplication>
@@ -19,80 +25,123 @@
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QListView>
+#include <QShortcut>
 
 Editor::Editor(QObject *parent)
     : QObject(parent)
     , mMainWindow(new QMainWindow())
+    , mUndoGroup(new QUndoGroup(this))
+    , mTileMapUndoStack(new QUndoStack(mUndoGroup))
     , mMap2Mesh(nullptr)
     , mTileMap(nullptr)
-    , mTileTemplateSetManager(new TileTemplateSetsManager(nullptr, this))
-    , mMapView(new MapView(mTileMapSelectedRegion, mMainWindow))
+    , mTileTemplateSetManager(new TileTemplateSetsManager(mTileMapUndoStack, nullptr, this))
+    , mMapViewContainer(new MapViewContainer(mMainWindow))
     , mTileMapToolManager(new TileMapToolManager(this))
     , mToolBar(new QToolBar(mMainWindow))
 {
+    //Set the application name
+    QCoreApplication::setOrganizationName("WAH");
+    QCoreApplication::setApplicationName("Walls and Holes");
+
     //Initiallize mMainWindow
-    mMainWindow->setCentralWidget(mMapView);
+    mMainWindow->setCentralWidget(mMapViewContainer);
     setUpMenuBar();
     mMainWindow->addToolBar(mToolBar);
 
+    //Set up and add all dock widgets
+    QDockWidget *meshViewDock = new QDockWidget("Mesh View", mMainWindow);
+    mMeshViewContainer = new MeshViewContainer(meshViewDock);
+    meshViewDock->setWidget(mMeshViewContainer);
+    meshViewDock->setObjectName("Mesh View Dock");
+
+    QDockWidget *templateDock = new QDockWidget("Template Set View", mMainWindow);
+    mTileTemplateSetsView = new TileTemplateSetsView(mTileTemplateSetManager, templateDock);
+    templateDock->setWidget(mTileTemplateSetsView);
+    templateDock->setObjectName("Template Dock");
+
+    QDockWidget *propBrowserDock = new QDockWidget("Property Browser View", mMainWindow);
+    mPropertyBrowser = new PropertyBrowser(mMainWindow);
+    propBrowserDock->setWidget(mPropertyBrowser);
+    propBrowserDock->setObjectName("Prop Browser Dock");
+
+    QDockWidget *materialDock = new QDockWidget("Material View", mMainWindow);
+    mMaterialView = new TileMaterialView(mMainWindow);
+    materialDock->setWidget(mMaterialView);
+    materialDock->setObjectName("Material Dock");
+
+    mMainWindow->addDockWidget(Qt::RightDockWidgetArea, meshViewDock);
+    mMainWindow->addDockWidget(Qt::LeftDockWidgetArea, templateDock);
+    mMainWindow->addDockWidget(Qt::RightDockWidgetArea, propBrowserDock);
+    mMainWindow->addDockWidget(Qt::RightDockWidgetArea, materialDock);
+
     // Add tools.
     mToolBar->addAction(mTileMapToolManager->registerMapTool(
-                            QSharedPointer<TileMapBrushTool>::create(mTileMap)
-                            , "Brush Tool"));
+                            new TileMapBrushTool(mMapViewContainer->mapView()->previewItem(), mTileMapUndoStack)
+                            , "Brush Tool"
+                            , QIcon("://images/icons/22x22/brush.png")
+                            , QKeySequence(Qt::Key_B)));
     mToolBar->addAction(mTileMapToolManager->registerMapTool(
-                            QSharedPointer<FillTool>::create(mMapView, mTileMap)
-                            , "Fill Tool"));
+                            new FillTool(mMapViewContainer->mapView()->previewItem(), mTileMapUndoStack)
+                            , "Fill Tool"
+                            , QIcon("://images/icons/22x22/stock-tool-bucket-fill.png")
+                            , QKeySequence(Qt::Key_F)));
     mToolBar->addAction(mTileMapToolManager->registerMapTool(
-                            QSharedPointer<LineBrushTool>::create(mMapView, mTileMap)
-                            , "Line Tool"));
+                            new LineBrushTool(mMapViewContainer->mapView()->previewItem(), mTileMapUndoStack)
+                            , "Line Tool"
+                            , QIcon("://images/icons/22x22/line.png")
+                            , QKeySequence(Qt::Key_L)));
     mToolBar->addAction(mTileMapToolManager->registerMapTool(
-                            QSharedPointer<RectBrushTool>::create(mMapView, mTileMap)
-                            , "Rect Tool"));
+                            new RectBrushTool(mMapViewContainer->mapView()->previewItem(), mTileMapUndoStack)
+                            , "Rect Tool"
+                            , QIcon("://images/icons/22x22/rectangle-fill.png")
+                            , QKeySequence(Qt::Key_R)));
     mToolBar->addAction(mTileMapToolManager->registerMapTool(
-                            QSharedPointer<EllipseBrushTool>::create(mMapView, mTileMap)
-                            , "Ellipse Tool"));
+                            new EllipseBrushTool(mMapViewContainer->mapView()->previewItem(), mTileMapUndoStack)
+                            , "Ellipse Tool"
+                            , QIcon("://images/icons/22x22/ellipse-fill.png")
+                            , QKeySequence(Qt::Key_E)));
+    mToolBar->addAction(mTileMapToolManager->registerMapTool(
+                            new TileMapSelectionTool(mPropertyBrowser, mMapViewContainer->mapView()->previewItem(), mTileMapUndoStack)
+                            , "Selection Tool"
+                            , QIcon("://images/icons/22x22/mouse.png")
+                            , QKeySequence(Qt::Key_S)));
 
-    //Set up and add all dock widgets
-    QDockWidget *dw = new QDockWidget("Mesh View", mMainWindow);
-    mMeshViewContainer = new MeshViewContainer(dw);
-    dw->setWidget(mMeshViewContainer);
+    mMeshViewContainer->addCamera(new MapViewMatcherCamera(mMapViewContainer->mapView()),
+                                  "Map View Matcher");
 
-    QDockWidget *tdw = new QDockWidget("Template Set View", mMainWindow);
-    mTileTemplateSetsView = new TileTemplateSetsView(mTileTemplateSetManager, tdw);
-    tdw->setWidget(mTileTemplateSetsView);
+    // Make TileMap undo stack active by default. This is only necessary
+    // until relevant undo stacks are set active automatically (e.g.
+    // when a window receives focus).
+    mTileMapUndoStack->setActive(true);
 
-    //Temporary setup for tilePropertyView
-    QDockWidget *tilePropDW = new QDockWidget("Tile Property View", mMainWindow);
-    mTilePropertyView = new TilePropertyView(tilePropDW);
-    tilePropDW->setWidget(mTilePropertyView);
-    mToolBar->addAction(mTileMapToolManager->registerMapTool(
-                            QSharedPointer<TileMapSelectionTool>::create(mTilePropertyView, mMapView, mTileMap)
-                            , "Selection Tool"));
 
-    mMainWindow->addDockWidget(Qt::RightDockWidgetArea, dw);
-    mMainWindow->addDockWidget(Qt::LeftDockWidgetArea, tdw);
-    mMainWindow->addDockWidget(Qt::LeftDockWidgetArea, tilePropDW);
+    //Sets up the context toolBar
+    mToolBar->addSeparator();
+    mToolBar->addWidget(mTileMapToolManager->contextToolBar());
+    mToolBar->setObjectName("Tool Bar");
 
     //Create widget connections
-    connect(mMapView, &MapView::cellActivated,
+    connect(mMapViewContainer->mapView(), &MapView::cellActivated,
             mTileMapToolManager, &TileMapToolManager::cellActivated);
-    connect(mMapView, &MapView::cellClicked,
+    connect(mMapViewContainer->mapView(), &MapView::cellClicked,
             mTileMapToolManager, &TileMapToolManager::cellClicked);
-    connect(mMapView, &MapView::cellReleased,
+    connect(mMapViewContainer->mapView(), &MapView::cellReleased,
             mTileMapToolManager, &TileMapToolManager::cellReleased);
-    connect(mMapView, &MapView::cellHovered,
+    connect(mMapViewContainer->mapView(), &MapView::cellHovered,
             mTileMapToolManager, &TileMapToolManager::cellHovered);
-    connect(mMapView, &MapView::mouseExitedMap,
+    connect(mMapViewContainer->mapView(), &MapView::mouseExitedMap,
             mTileMapToolManager, &TileMapToolManager::mouseExitedMap);
 
     connect(mTileTemplateSetsView, &TileTemplateSetsView::tileTemplateChanged,
             mTileMapToolManager, &TileMapToolManager::tileTemplateChanged);
 
     mMainWindow->showMaximized();
+    loadSettings();
 }
 
 Editor::~Editor()
 {
+    saveSettings();
     delete mMainWindow;
     delete mTileMap;
 }
@@ -102,47 +151,69 @@ void Editor::newMap()
     NewMapDialog nmd;
 
     if (nmd.exec()) {
-        setTileMap(new TileMap(QSize(nmd.result.width, nmd.result.height)));
+        setTileMap(new TileMap(QSize(nmd.result().width, nmd.result().height),
+                               nmd.result().isIndoorMap,
+                               nmd.result().hasCeiling));
     }
 }
 
-void Editor::makeNewScene()
-{
-    QSharedPointer<Scene> scene = QSharedPointer<Scene>::create();
-
-    for (auto&& obj : mMap2Mesh->getMeshes())
-        scene->addObject(obj);
-
-    mMeshViewContainer->setScene(scene);
-}
 
 void Editor::saveMap()
 {
-    // TODO : Save should be disabled if there is no map
-    if(mTileMap == nullptr){
-        QMessageBox messageBox;
-        messageBox.critical(0,"Error","TileMap doesn't exist!");
-        messageBox.setFixedSize(500,200);
-        return;
-    }
+    Q_ASSERT(mTileMap != nullptr);
 
-    if(mTileMap->savePath().isEmpty()){
-        mTileMap->setSavePath(QFileDialog::getSaveFileName(mMainWindow,
-                                                           tr("Save Map"),
-                                                           "/home/",
-                                                           tr("Save Files (*.wah)")));
+    if (mTileMap->savePath().isEmpty()) {
+        QString savePath = QFileDialog::getSaveFileName(mMainWindow,
+                                                        tr("Save Map"),
+                                                        mSavePath,
+                                                        tr("Save Files (*.wah)"));
+
+        if (savePath.isEmpty())
+            return;
+        mTileMap->setSavePath(savePath);
+        mSavePath = savePath;
     }
 
     mTileTemplateSetManager->saveAllTileTemplateSets();
 
-    XMLTool::saveTileMap(mTileMap, mTileTemplateSetManager->tileTemplateSets());
+    if (XMLTool::saveTileMap(mTileMap, mTileTemplateSetManager->tileTemplateSets()) != XMLTool::NoError) {
+        mTileMap->setSavePath("");
+        QMessageBox messageBox;
+        messageBox.critical(0,"Error","Fail to save TileMap!");
+        messageBox.setFixedSize(500,200);
+    }
+}
+
+void Editor::saveMapAs()
+{
+    Q_ASSERT(mTileMap != nullptr);
+
+    mTileTemplateSetManager->saveAllTileTemplateSets();
+
+    QString prePath = mTileMap->savePath();
+    QString savePath = QFileDialog::getSaveFileName(mMainWindow,
+                                                    tr("Save Map"),
+                                                    mSavePath,
+                                                    tr("Save Files (*.wah)"));
+
+    if (savePath.isEmpty())
+        return;
+    mTileMap->setSavePath(savePath);
+    mSavePath = savePath;
+
+    if (XMLTool::saveTileMap(mTileMap, mTileTemplateSetManager->tileTemplateSets()) != XMLTool::NoError) {
+        mTileMap->setSavePath(prePath);
+        QMessageBox messageBox;
+        messageBox.critical(0,"Error","Fail to save TileMap!");
+        messageBox.setFixedSize(500,200);
+    }
 }
 
 void Editor::loadMap()
 {
     QString fileName = QFileDialog::getOpenFileName(mMainWindow,
                                                     tr("Open Map"),
-                                                    "/home/",
+                                                    mSavePath,
                                                     tr("Open Files (*.wah)"));
 
     TileMap *tileMap = XMLTool::openTileMap(fileName, mTileTemplateSetManager);
@@ -153,7 +224,7 @@ void Editor::loadMap()
         messageBox.setFixedSize(500,200);
         return;
     }
-
+    mSavePath = fileName;
     setTileMap(tileMap);
 }
 
@@ -164,48 +235,86 @@ void Editor::closeMap()
 
 void Editor::exportMapMesh()
 {
-    if (mMeshViewContainer == nullptr) {
+    if (mMap2Mesh == nullptr) {
         QMessageBox messageBox;
-        messageBox.critical(0,"Error","MeshView doesn't exist!");
+        messageBox.critical(0,"Error","Map2Mesh convertor doesn't exist!");
+        messageBox.setFixedSize(500,200);
+        return;
+    }
+    SharedSimpleTexturedScene scene = mMap2Mesh->getScene();
+    if (scene == nullptr) {
+        QMessageBox messageBox;
+        messageBox.critical(0,"Error","Scene doesn't exist!");
         messageBox.setFixedSize(500,200);
         return;
     }
 
     QString fileName = QFileDialog::getSaveFileName(mMainWindow,
                                                     tr("Export OBJ"),
-                                                    "/home/",
+                                                    mExportPath,
                                                     tr("Export Files (*.obj)"));
 
-    if(!fileName.isEmpty())
-        mMeshViewContainer->saveMesh(fileName);
+    if(!fileName.isEmpty()){
+        SharedOBJModel obj = scene->exportOBJ();
+        obj->save(fileName);
+    }
+    mExportPath = fileName;
+}
+
+void Editor::viewMapProperties()
+{
+    mPropertyBrowser->setPropertyManager(new MapPropertyManager(mTileMap));
 }
 
 void Editor::setTileMap(TileMap *tileMap)
 {
+    if (mTileMap == tileMap) return;
+
+    // TODO : currently TileMap doesn't keep track of if it needs to be saved or not,
+    //        so in some cases this check might not be needed.
+    if (mTileMap) {
+        QMessageBox mb;
+        mb.setText("Do you want to save the current Tile Map?");
+        mb.addButton("Save", QMessageBox::AcceptRole);
+        mb.addButton("Don't Save", QMessageBox::AcceptRole);
+        mb.addButton("Cancel", QMessageBox::RejectRole);
+
+        switch (mb.exec()) {
+        case 0:
+            saveMap();
+            break;
+        case 2:
+            return;
+        }
+    }
+
     TileMap *pre = mTileMap;
     mTileMap = tileMap;
     mTileMapToolManager->setTileMap(mTileMap);
-    mMapView->createMap(mTileMap);
+    mMapViewContainer->mapView()->setMap(mTileMap);
     mTileTemplateSetManager->setTileMap(mTileMap);
-    if (mTileMap)
+    mPropertyBrowser->clear();
+    setMapDependantActionsEnabled(mTileMap != nullptr);
+
+    if (mTileMap) {
         mTileTemplateSetsView->setDefaultTileTemplateSet(mTileMap->defaultTileTemplateSet());
-    else
+        mPropertyBrowser->setPropertyManager(new MapPropertyManager(mTileMap));
+    } else {
         mTileTemplateSetsView->setDefaultTileTemplateSet(nullptr);
+        mPropertyBrowser->clear();
+    }
+
 
     delete mMap2Mesh;
-
     mMap2Mesh = new Map2Mesh(mTileMap, this);
 
-    // TODO: It is inefficient to update the entire scene when just a part
-    // of the map is updated.
-    connect(mMap2Mesh, &Map2Mesh::mapMeshUpdated, this, &Editor::makeNewScene);
+    SharedAbstractScene scene = mMap2Mesh->getScene();
+    QSharedPointer<AbstractRenderer> renderer = scene->getRenderer();
 
-    // Note: Map2Mesh's mapUpdated() signal is emitted during its constructor,
-    // but that is BEFORE the above connection is made. Therefore, updateScene()
-    // must be called manually here.
-    makeNewScene();
+    mMeshViewContainer->setRenderer(renderer);
 
-    // TODO SHOULD provide option to save old tileMap
+    renderer->requestUpdate();
+
     delete pre;
 }
 
@@ -215,10 +324,90 @@ void Editor::setUpMenuBar()
     menuBar->clear();
 
     QMenu *fileMenu = menuBar->addMenu(tr("File"));
-    fileMenu->addAction(tr("New Map"), this, &Editor::newMap);
-    fileMenu->addAction(tr("Save Map"), this, &Editor::saveMap);
-    fileMenu->addAction(tr("Load Map"), this, &Editor::loadMap);
-    fileMenu->addAction(tr("Close Map"), this, &Editor::closeMap);
+                                fileMenu->addAction(tr("New Map"), this, &Editor::newMap
+                                                    , Qt::CTRL + Qt::Key_N);
+    mMapDependantActions.append(fileMenu->addAction(tr("Save Map"), this, &Editor::saveMap
+                                                    , Qt::CTRL + Qt::Key_S));
+    mMapDependantActions.append(fileMenu->addAction(tr("Save Map As"), this, &Editor::saveMapAs
+                                                    , Qt::CTRL + Qt::SHIFT + Qt::Key_S));
+                                fileMenu->addAction(tr("Load Map"), this, &Editor::loadMap
+                                                    , Qt::CTRL + Qt::Key_O);
+    mMapDependantActions.append(fileMenu->addAction(tr("Close Map"), this, &Editor::closeMap
+                                                    , Qt::CTRL + Qt::Key_W));
     fileMenu->addSeparator();
-    fileMenu->addAction(tr("Export Map Mesh"), this, &Editor::exportMapMesh);
+    mMapDependantActions.append(fileMenu->addAction(tr("Export Map Mesh"), this, &Editor::exportMapMesh
+                                                    , Qt::CTRL + Qt::Key_E));
+
+
+    // Create undo and redo actions.
+    QAction *undoAction = mUndoGroup->createUndoAction(this, tr("Undo"));
+    QAction *redoAction = mUndoGroup->createRedoAction(this, tr("Redo"));
+    undoAction->setShortcut(QKeySequence::Undo);
+    redoAction->setShortcut(QKeySequence::Redo);
+
+    QMenu *editMenu = menuBar->addMenu(tr("Edit"));
+    editMenu->addAction(undoAction);
+    editMenu->addAction(redoAction);
+
+    QMenu *mapMenu = menuBar->addMenu(tr("Map"));
+    mMapDependantActions.append(mapMenu->addAction(tr("View Map Properties"), this, &Editor::viewMapProperties));
+
+
+    setMapDependantActionsEnabled(false);
+}
+
+void Editor::loadSettings()
+{
+    QSettings settings;
+
+    mMainWindow->restoreGeometry(settings.value("geometry").toByteArray());
+    mMainWindow->restoreState(settings.value("windowState").toByteArray());
+
+    if (mTileTemplateSetsView != nullptr) {
+        mTileTemplateSetsView->restoreState();
+    }
+
+    if (mMaterialView != nullptr) {
+        mMaterialView->restoreState();
+    }
+
+    if(!settings.value("tileMap").toString().isNull())
+        setTileMap(XMLTool::openTileMap(settings.value("tileMap").toString(), mTileTemplateSetManager));
+    else
+        setTileMap(nullptr);
+
+    //Loading saving and export paths
+    mSavePath = settings.value("savePath", QString("/home/")).toString();
+    mExportPath = settings.value("exportPath", QString("/home/")).toString();
+
+}
+
+void Editor::saveSettings()
+{
+    QSettings settings;
+
+    //Saves the windowstate
+    if (mMainWindow != nullptr) {
+        settings.setValue("geometry", mMainWindow->saveGeometry());
+        settings.setValue("windowState", mMainWindow->saveState());
+    }
+
+    if (mTileTemplateSetsView != nullptr) {
+        mTileTemplateSetsView->saveState();
+    }
+
+    if (mMaterialView != nullptr) {
+        mMaterialView->saveState();
+    }
+
+    //Saves the open Tilemap
+    if(mTileMap)
+        settings.setValue("tileMap", mTileMap->savePath());
+    else
+        settings.setValue("tileMap", QString());
+
+    //Save and Export paths
+    settings.setValue("savePath", mSavePath);
+    settings.setValue("exportPath", mExportPath);
+
 }

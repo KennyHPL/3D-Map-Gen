@@ -1,27 +1,67 @@
 #ifndef M2MTILEMESHER_H
 #define M2MTILEMESHER_H
 
+#include <QVector2D>
+#include <QSharedPointer>
 
-#include <QVector3D>
+#include "tilemap.h"
+#include "simpletexturedobject.h"
 
-#include "m2mpropertyset.h"
-#include "renderableobject.h"
+namespace M2M {
+
+class AbstractTileMesher;
+
+class TileNeighborhoodInfo
+{
+public:
+    TileNeighborhoodInfo(const TileMap *tileMap, QPoint centerTilePos);
+
+    const Tile *operator ()(int x, int y) const;
+    const Tile *operator ()(QPoint pt) const;
+
+    const Tile *centerTile() const;
+
+    QSharedPointer<AbstractTileMesher> makeMesher() const;
+
+private:
+    const TileMap *mTileMap;
+
+    QPoint mCenterTilePos;
+};
 
 
 /**
  * @brief A collection of methods for generating tile mesh data.
  */
-class M2MTileMesher {
+class AbstractTileMesher
+{
 public:
+
+    virtual ~AbstractTileMesher() {}
+
     /**
-     * @brief Generates a square for the top of the tile. The offset's Y component
-     * should not depend on the tile's height because that is considered separately.
-     * @param tileProperties    The properties of the tile that is to be converted.
-     * @param offset            The position of the center of the tile (at height 0).
-     * @param scale             A multiplier. By default, each tile is a 1-by-1 square.
-     * @return
+     * @brief Returns a TileMesher instance that will create the mesh for the given tile,
+     * or, if the tile has not changed (determined by oldMesher), returns nullptr.
      */
-    static RenderableObject getTopMesh(const M2MPropertySet &tileProperties, QVector3D offset, float scale = 1.0);
+    static QSharedPointer<AbstractTileMesher> getMesherForTile(const TileMap *tileMap, QPoint tilePoint);
+
+
+    /**
+     * @brief makeMesh  Creates the mesh for this tile.
+     * @return          A list of objects that contain the mesh info for the tile.
+     */
+    virtual QVector<QSharedPointer<SimpleTexturedObject>> makeMesh(QVector2D offset) = 0;
+
+
+protected:
+    AbstractTileMesher(TileNeighborhoodInfo nbhd);
+
+    /**
+     * @brief Information for each tile in the 3x3 neighborhood of the tile to which this mesher is associated.
+     */
+    TileNeighborhoodInfo mTileNeighborhood;
 };
+
+}
 
 #endif // M2MTILEMESHER_H

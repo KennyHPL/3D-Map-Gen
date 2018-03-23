@@ -30,8 +30,6 @@ SOURCES += \
     main.cpp \
     meshview.cpp \
     meshviewcameralikeblender.cpp \
-    renderableobject.cpp \
-    scene.cpp \
     tile.cpp \
     tilemap.cpp \
     tiletemplate.cpp \
@@ -41,8 +39,6 @@ SOURCES += \
     meshviewcontainer.cpp \
     mapview.cpp \
     editor.cpp \
-    newmapdialog.cpp \
-    meshmaterial.cpp \
     shaderprogramonelight.cpp \
     xmltool.cpp \
     map2mesh.cpp \
@@ -56,29 +52,57 @@ SOURCES += \
     map2meshproperties.cpp \
     tiletemplatesetsview.cpp \
     newtiletemplatesetdialog.cpp \
-    tiletemplateeditor.cpp \
     mapcellgraphicsitem.cpp \
     abstractshapebrushtool.cpp \
     linebrushtool.cpp \
     rectbrushtool.cpp \
     ellipsebrushtool.cpp \
-    mapoverlaycell.cpp \
-    tilepropertyview.cpp \
     tilemapselectiontool.cpp \
     filltool.cpp \
+    simpletexturedrenderer.cpp \
+    simpletexturedscene.cpp \
+    simpletexturedobject.cpp \
+    simpletexturedshader.cpp \
     tiletemplatesetsmanager.cpp \
-    savabletiletemplateset.cpp
+    savabletiletemplateset.cpp \
+    newmapdialog.cpp \
+    tilemappreviewgraphicsitem.cpp \
+    objtools.cpp \
+    propertybrowser.cpp \
+    tilepropertymanager.cpp \
+    mappropertymanager.cpp \
+    colorpickerbutton.cpp \
+    tiletemplatepropertymanager.cpp \
+    tilematerial.cpp \
+    tilematerialview.cpp \
+    tilematerialset.cpp \
+    tilematerialselectionbar.cpp \
+    materialpropertymanager.cpp \
+    imagefinderbar.cpp \
+    tilematerialselectiondialog.cpp \
+    templatematerialselector.cpp \
+    abstracttileselectiontool.cpp \
+    tilemaphelpers.cpp \
+    shaperegion.cpp \
+    mapviewcontainer.cpp\
+    m2mpartialmesh.cpp \
+    m2mtilemesher_private.cpp \
+    polygon.cpp \
+    abstractpolygontilemesher.cpp \
+    blockypolygontilemesher.cpp \
+    groundblockypolygontilemesher.cpp \
+    imageandsource.cpp \
+    mapviewmatchercamera.cpp \
+    tiletemplatechangecommand.cpp \
+    dependentundocommand.cpp \
+    emptyparentcommand.cpp
 
 HEADERS += \
-    renderableobject.h \
-    scene.h \
     meshview.h \
     meshviewcameralikeblender.h \
     objtools.h \
     drawableaxes.h \
     toolmanager.h \
-    renderableobject.h \
-    scene.h \
     tile.h \
     tilemap.h \
     tiletemplate.h \
@@ -88,9 +112,7 @@ HEADERS += \
     meshviewcontainer.h \
     mapview.h \
     editor.h \
-    newmapdialog.h \
     array2d.h \
-    meshmaterial.h \
     shaderprogramonelight.h \
     xmltool.h \
     map2mesh.h \
@@ -106,23 +128,62 @@ HEADERS += \
     tiletemplateset.h \
     tiletemplatesetsview.h \
     newtiletemplatesetdialog.h \
-    tiletemplateeditor.h \
     mapcellgraphicsitem.h \
     abstractshapebrushtool.h \
     linebrushtool.h \
     rectbrushtool.h \
     ellipsebrushtool.h \
-    mapoverlaycell.h \
-    tilepropertyview.h \
-    tilemapselectiontool.h \
     filltool.h \
+    abstractrenderer.h \
+    simpletexturedrenderer.h \
+    abstractscene.h \
+    simpletexturedscene.h \
+    dereferencingiterator.h \
+    dereferencingconstiterator.h \
+    simpletexturedobject.h \
+    triplet.h \
+    simpletexturedshader.h \
+    tilemapselectiontool.h \
+    tilemappreviewgraphicsitem.h \
     tiletemplatesetsmanager.h \
-    savabletiletemplateset.h
+    savabletiletemplateset.h \
+    newmapdialog.h \
+    propertybrowser.h \
+    tilepropertymanager.h \
+    mappropertymanager.h \
+    colorpickerbutton.h \
+    tiletemplatepropertymanager.h \
+    abstractpropertymanager.h \
+    tilematerial.h \
+    tilematerialview.h \
+    tilematerialset.h \
+    tilematerialselectionbar.h \
+    materialpropertymanager.h \
+    imagefinderbar.h \
+    imageandsource.h \
+    tilematerialselectiondialog.h \
+    templatematerialselector.h \
+    abstracttileselectiontool.h \
+    tilemaphelpers.h \
+    shaperegion.h \
+    mapviewcontainer.h \
+    m2mpartialmesh.h \
+    array2dtools.h \
+    array2d_private.h \
+    m2mtilemesher_private.h \
+    polygon.h \
+    geometry.h \
+    abstractpolygontilemesher.h \
+    blockypolygontilemesher.h \
+    groundblockypolygontilemesher.h \
+    mapviewmatchercamera.h \
+    tiletemplatechangecommand.h \
+    changevaluecommand.h \
+    undocommandfromfunctions.h \
+    dependentundocommand.h \
+    emptyparentcommand.h
 
-FORMS += \
-    meshview.ui \
-    meshviewcontainer.ui \
-    newmapdialog.ui
+FORMS +=
 
 DISTFILES += \
     basic.fsh \
@@ -131,4 +192,9 @@ DISTFILES += \
     onelight.fsh
 
 RESOURCES += \
-    shaders.qrc
+    shaders.qrc \
+    textures.qrc \
+    icons.qrc
+
+RC_FILE = wah.rc
+ICON = images/wahicon.icns

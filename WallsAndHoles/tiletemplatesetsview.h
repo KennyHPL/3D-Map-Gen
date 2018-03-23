@@ -3,10 +3,13 @@
 
 #include "savabletiletemplateset.h"
 #include "tiletemplatesetsmanager.h"
+#include "propertybrowser.h"
 
+#include <QAction>
 #include <QWidget>
 #include <QTabWidget>
 #include <QListView>
+#include <QSplitter>
 
 /**
  * @brief The TileTemplateSetsView class
@@ -23,6 +26,9 @@ public:
                                   QWidget *parent = nullptr);
 
     void setDefaultTileTemplateSet(TileTemplateSet *tileTemplateSet);
+
+    void saveState();
+    void restoreState();
 
 signals:
     void tileTemplateChanged(TileTemplate *tileTemplate);
@@ -42,6 +48,8 @@ private slots:
     void saveTemplateSet();
     void loadTemplateSet();
 
+    void tileTemplateChangedSlot(TileTemplate *tileTemplate);
+
 private:
     void tileTemplateSetSaveStatusChanged(SavableTileTemplateSet *tileTemplateSet, bool status);
 
@@ -49,8 +57,17 @@ private:
     QListView *mDefaultTemplateView;
     TileTemplateSetsManager *mTileTemplateSetsManager;
     QList<QListView *> mListViews;
+    PropertyBrowser *mTemplatePropertyBrowser;
 
     QTabWidget *mTabs;
+
+    QAction *mNewTemplate;
+    QAction *mRemoveTemplate;
+
+    QAction *mRemoveTemplateSet;
+    QAction *mSaveTemplateSet;
+
+    QSplitter *mSplitter;
 };
 
 #endif // TILETEMPLATESETSVIEW_H

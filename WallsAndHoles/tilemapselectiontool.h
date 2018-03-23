@@ -1,23 +1,35 @@
 #ifndef TILEMAPSELECTIONTOOL_H
 #define TILEMAPSELECTIONTOOL_H
-#include "abstracttilemaptool.h"
-#include "tilepropertyview.h"
-#include "mapview.h"
-#include "mapoverlaycell.h"
 
-class TileMapSelectionTool : public AbstractTileMapTool
+#define MULTI_CLICK_TIME 200
+
+#include "abstracttileselectiontool.h"
+#include "changevaluecommand.h"
+
+class TileMapSelectionTool : public AbstractTileSelectionTool
 {
 public:
-    TileMapSelectionTool(TilePropertyView *propView, MapView *mapView, TileMap *tileMap);
-    void cellActivated(int x, int y) override;
-    void deactivate() override;
+    TileMapSelectionTool(PropertyBrowser *propertyBrowser,
+                         TileMapPreviewGraphicsItem *previewItem,
+                         QUndoStack *undoStack);
+
+    void cellClicked(int x, int y, QMouseEvent *) override;
+    void cellActivated(int x, int y, QMouseEvent *) override;
+    void cellReleased(int, int, QMouseEvent *event) override;
 
 private:
-    void drawOverlay(int endX, int endY);
-    void clearOverlay();
-    TilePropertyView* mTilePropertyView;
-    MapView* mMapView;
-    QSharedPointer<MapOverlayCell> mOverlay;
+    void updatePreview(QPoint end);
+
+    QPoint mStartPoint;
+    QRegion mCurrentRect;
+    QRegion mOriginalSelection;
+
+    int mClickCount;
+    ulong mLastClickTime;
+
+    QUndoStack *mUndoStack;
+
+    using SelectionChangeCommand = ChangeValueCommand<QRegion>;
 };
 
 #endif // TILEMAPSELECTIONTOOL_H

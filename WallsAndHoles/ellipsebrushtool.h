@@ -5,10 +5,10 @@
 
 class EllipseBrushTool : public AbstractShapeBrushTool {
 public:
-    EllipseBrushTool(MapView *mapView, TileMap *tileMap);
+    EllipseBrushTool(TileMapPreviewGraphicsItem *previewItem, QUndoStack *undoStack);
 
     /// Draws an ellipse.
-    QVector<QPoint> getShape(int dx, int dy) const override;
+    QRegion getShape(QPoint start, QPoint end) const override;
 };
 
 #endif // ELLIPSEBRUSHTOOL_H

@@ -2,48 +2,53 @@
 #define MESHVIEW_H
 
 #include <QOpenGLWidget>
-#include <QOpenGLFunctions>
-#include <QOpenGLBuffer>
-#include <QOpenGLVertexArrayObject>
-#include <QOpenGLShaderProgram>
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QMutex>
 
-#include "scene.h"
 #include "abstractmeshviewcamera.h"
 #include "toolmanager.h"
 #include "objtools.h"
-#include "shaderprogramonelight.h"
 
-namespace Ui {
-class MeshView;
-}
+#include "meshviewcontainer.h"
+#include "abstractrenderer.h"
 
-class MeshView : public QOpenGLWidget, protected QOpenGLFunctions
+
+class MeshView : public QOpenGLWidget, public QOpenGLFunctions
 {
     Q_OBJECT
+
+    friend class MeshViewContainer;
 
 public:
     explicit MeshView(QWidget *parent = 0);
     ~MeshView();
 
-    void setScene(QSharedPointer<Scene> scene);
-
 public slots:
     /**
-     * @brief Activates the given tool in the tool manager.
-     * @param name The name of the tool.
+     * @brief Schedules a paintGL() call on the OpenGL thread.
      */
-    void activateTool(QString name);
-    void load(QString path);
-    void save(QString path);
+    void scheduleRepaint();
+
+    void makeContextCurrent();
+    void doneContextCurrent();
+
 
     /**
-     * @brief Makes buffers be reloaded before the next frame is drawn.
+     * @brief Cleans up all resources.
      */
-    void invalidateBuffers();
+    void cleanUp();
+
+private slots:
+    void cameraActivated(AbstractTool *tool, QString);
 
 protected:
+    /**
+     * @brief Makes the MeshView use a new Renderer.
+     * @param renderer  The Renderer that will be used to draw to the screen.
+     */
+    void setRenderer(QSharedPointer<AbstractRenderer> renderer);
+
     void initializeGL() override;
     void paintGL() override;
     void resizeGL(int w, int h) override;
@@ -53,43 +58,57 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
 
-    // Loads the vertex data for the scene onto the GPU. Assumes mScene is not nullptr.
-    // After this, it is safe to call paintGL().
-    void loadVAO();
+
+    /**
+     * @brief This method should ONLY be called on the OpenGL thread.
+     * It returns the appropriate renderer to be used, considering the
+     * value of mNextRenderer.
+     *
+     * This function does not lock the mRendererMutex.
+     *
+     * @return The Renderer that should be used.
+     */
+    QSharedPointer<AbstractRenderer> getCurrentRenderer();
 
 
-    // Shader program.
-    ShaderProgramOneLight mShaderProgram;
 
-    // VAO and buffers for rendering.
-    QSharedPointer<QOpenGLVertexArrayObject> mVAO;
-    QSharedPointer<QOpenGLBuffer> mVertexPositions;
-    QSharedPointer<QOpenGLBuffer> mVertexNormals;
-    QSharedPointer<QOpenGLBuffer> mVertexMaterials;
-    QSharedPointer<QOpenGLBuffer> mTriangleIndices;
+    /**
+     * @brief The Renderer object that will be used to draw to the screen.
+     */
+    QSharedPointer<AbstractRenderer> mRenderer;
 
-    // Scene object that is rendered.
-    QSharedPointer<Scene> mScene;
+    /**
+     * @brief nullptr if the Renderer does not need to change, else equal
+     * to the new renderer.
+     */
+    QSharedPointer<AbstractRenderer> mNextRenderer;
 
-    // This variable is just used for synchronization. mScene should not be changed
-    // in parallel with the paint loop.
-    QSharedPointer<Scene> mNextScene;
+    /**
+     * @brief Mutex for updating the mRenderer variable. This ensures that the
+     * mRenderer is not being used when it is changed.
+     */
+    QMutex mRendererMutex;
+
 
     // The Projection*View matrix.
     QMatrix4x4 mProjectionMatrix;
 
 
     // Controller for the camera.
-    QSharedPointer<AbstractMeshViewCamera> mCamera;
+    AbstractMeshViewCamera *mCamera;
 
     // The tool manager. This will send mouse events to the appropriate tool.
-    ToolManagerP mTools;
+    ToolManager *mTools;
 
-    // True when Scene related buffers need to be reloaded.
-    bool mShouldReloadScene;
 
-private:
-    Ui::MeshView *ui;
+    /**
+     * @brief The context this MeshView was initialized with. This variable is only
+     * stored to disconnect its aboutToBeDestroyed() signal when the MeshView is
+     * itself destroyed. This pointer is not owned by the MeshView, but should
+     * still be valid in ~MeshView() (although this cannot be guaranteed---darn you,
+     * Qt's lack of shared pointers!).
+     */
+    QOpenGLContext *mContext;
 };
 
 #endif // MESHVIEW_H

@@ -1,52 +1,37 @@
+#include <QVBoxLayout>
+
 #include "meshviewcontainer.h"
-#include "ui_meshviewcontainer.h"
 
 #include "meshview.h"
-#include "scene.h"
+#include "meshviewcameralikeblender.h"
 #include "objtools.h"
 
-MeshViewContainer::MeshViewContainer(QWidget *parent) :
-    QWidget(parent),
-    ui(new Ui::MeshViewContainer)
+MeshViewContainer::MeshViewContainer(QWidget *parent)
+    : QWidget(parent)
+    , mMeshView(new MeshView(this))
+    , mToolBar(new QToolBar(this))
 {
-    ui->setupUi(this);
+    mMeshView->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
+    addCamera(new MeshViewCameraLikeBlender(), "Default")->setChecked(true);
 
-    // Create a test scene.
-    //QSharedPointer<Scene> scene = QSharedPointer<Scene>::create();
-    //scene->addObject(loadOBJ(":/assets/cube.obj"));
+    QVBoxLayout *layout = new QVBoxLayout(this);
+    layout->addWidget(mToolBar);
+    layout->addWidget(mMeshView);
 
-    // Find the MeshView child widget and set the scene.
-    mMeshView = findChild<MeshView *>();
-    //mMeshView->setScene(scene);
-
-    mMeshView->load(":/assets/teapot.obj");
+    setLayout(layout);
 }
 
-MeshViewContainer::~MeshViewContainer() {
-    delete ui;
+void MeshViewContainer::setRenderer(QSharedPointer<AbstractRenderer> renderer)
+{
+    mMeshView->setRenderer(renderer);
 }
 
-void MeshViewContainer::setScene(QSharedPointer<Scene> scene) {
-    mMeshView->setScene(scene);
-}
+QAction *MeshViewContainer::addCamera(AbstractMeshViewCamera *camera, QString name, QIcon icon, QKeySequence ks)
+{
+    QAction *cam = mMeshView->mTools->registerTool(camera, name, icon, ks);
 
-void MeshViewContainer::on_toolSelection_currentIndexChanged(int index) {
-    switch (index) {
-    case 0:
-        mMeshView->activateTool("nothing");
-        break;
-    case 1:
-        mMeshView->activateTool("camera");
-        break;
-    }
-}
+    mToolBar->addAction(cam);
 
-void MeshViewContainer::saveMesh(QString path){
-    mMeshView = findChild<MeshView *>();
-    mMeshView->save(path);
-}
-void MeshViewContainer::loadMesh(QString path){
-    mMeshView = findChild<MeshView *>();
-    mMeshView->load(path);
+    return cam;
 }

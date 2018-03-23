@@ -1,36 +1,28 @@
 #include "abstractshapebrushtool.h"
 
-AbstractShapeBrushTool::AbstractShapeBrushTool(MapView *mapView, TileMap *tileMap)
-    : AbstractTileMapTool(tileMap),
-      mMapView(mapView) {}
+AbstractShapeBrushTool::AbstractShapeBrushTool(TileMapPreviewGraphicsItem *previewItem, QUndoStack *undoStack)
+    : AbstractTileMapTool(previewItem)
+    , mUndoStack(undoStack) {}
 
-
-void AbstractShapeBrushTool::cellClicked(int x, int y) {
+void AbstractShapeBrushTool::cellClicked(int x, int y, QMouseEvent *)
+{
     mStartX = x;
     mStartY = y;
 
-    Q_ASSERT( mStartX >= 0 && mStartX < getTileMap()->width() );
-    Q_ASSERT( mStartY >= 0 && mStartY < getTileMap()->height() );
-
     drawOverlay(x, y);
 }
 
 
-void AbstractShapeBrushTool::cellActivated(int x, int y)
+void AbstractShapeBrushTool::cellActivated(int x, int y, QMouseEvent *)
 {
     drawOverlay(x, y);
 }
 
 
-void AbstractShapeBrushTool::cellReleased(int x, int y)
+void AbstractShapeBrushTool::cellReleased(int x, int y, QMouseEvent *)
 {
     clearOverlay();
     placeShape(x, y);
-}
-
-void AbstractShapeBrushTool::mouseExitedMap()
-{
-    clearOverlay();
 }
 
 void AbstractShapeBrushTool::deactivate()
@@ -42,42 +34,26 @@ void AbstractShapeBrushTool::deactivate()
 void AbstractShapeBrushTool::drawOverlay(int endX, int endY) {
     clearOverlay();
 
-    QVector<QPoint> shape = getShape(endX - mStartX, endY - mStartY);
+    QRegion region = getShape(QPoint(mStartX, mStartY), QPoint(endX, endY));
 
-    mOverlay = Array2D<QSharedPointer<MapOverlayCell>>(getTileMap()->mapSize());
-
-    QGraphicsScene *scene = mMapView->scene();
-
-    QColor color;
+    mPreviewItem->setRegion(region);
     if (TileTemplate *t = getTileTemplate())
-        color = t->color();
+        mPreviewItem->setColor(t->color());
     else
-        color = Qt::black;
-
-    color.setAlpha(100);
-
-    QPoint start(mStartX, mStartY);
-    for (QPoint p : shape)
-        if (mOverlay.isInBounds(start + p))
-            mOverlay(start + p) = QSharedPointer<MapOverlayCell>::create(scene, mStartX + p.x(), mStartY + p.y(), color);
+        mPreviewItem->setColor(Qt::gray);
 }
 
 void AbstractShapeBrushTool::clearOverlay() {
     // Clears overlay.
-    mOverlay = Array2D<QSharedPointer<MapOverlayCell>>();
+    mPreviewItem->setRegion(QRegion());
 }
 
 void AbstractShapeBrushTool::placeShape(int endX, int endY) {
-    QVector<QPoint> shape = getShape(endX - mStartX, endY - mStartY);
+    QRegion region = getShape(QPoint(mStartX, mStartY), QPoint(endX, endY));
 
-    Q_ASSERT( endX >= 0 && endX < getTileMap()->width() );
-    Q_ASSERT( endY >= 0 && endY < getTileMap()->height() );
-
-    for (QPoint p : shape) {
-        int x = mStartX + p.x();
-        int y = mStartY + p.y();
-
-        if (x >= 0 && x < getTileMap()->width() && y >= 0 && y < getTileMap()->height())
-            getTileMap()->setTile(x, y, getTileTemplate());
-    }
+    mUndoStack->push(TileTemplateChangeCommand::make(
+                         getTileMap(),
+                         region,
+                         getTileTemplate(),
+                         "'draw shape'"));
 }
